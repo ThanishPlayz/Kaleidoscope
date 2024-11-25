@@ -1,15 +1,9 @@
 import json
 import re
+import base64
 from PIL import Image, ImageDraw, ImageFont
-from smtplib import SMTP
-from email.mime.multipart import MIMEMultipart
-from email.mime.application import MIMEApplication
-from email.mime.text import MIMEText
-
-# Replace these with your actual email details
-sender_email = 'aiprojects.boazpublicschool@gmail.com'      # Your Gmail address
-sender_password = 'Kaleidoscope'  # Your Gmail password or app password
-
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileType, Disposition
 
 # Load participant data
 def load_data(filename='responses.json'):
@@ -54,29 +48,36 @@ def generate_certificate(name, template_path='certificate_template.png', output_
 
     return filename
 
-# Send an email with the certificate attached
-def send_email(to_address, name, certificate_path, smtp_server, smtp_port, sender_email, sender_password):
-    # Email setup
-    msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = to_address
-    msg['Subject'] = "Certificate of Participation"
+# Send an email with the certificate using SendGrid API
+def send_email_via_sendgrid(to_address, name, certificate_path, sendgrid_api_key):
+    with open(certificate_path, 'rb') as f:
+        file_data = f.read()
+        encoded_file = base64.b64encode(file_data).decode()
 
-    # Email body
-    body = f"Dear {name},\n\nThank you for participating in our SECULARISM QUIZ! Please find your certificate attached.\n\nBest Regards,\nQuiz Organizers"
-    msg.attach(MIMEText(body, 'plain'))
+    # Prepare the email content
+    message = Mail(
+        from_email='your_email@domain.com',  # Replace with your verified sender email
+        to_emails=to_address,
+        subject="Certificate of Participation",
+        html_content=f"Dear {name},<br><br>Thank you for participating in our SECULARISM QUIZ!<br>Please find your certificate attached.<br><br>Best Regards,<br>Quiz Organizers"
+    )
 
-    # Attach certificate
-    with open(certificate_path, "rb") as attachment:
-        part = MIMEApplication(attachment.read(), _subtype="png")
-        part.add_header('Content-Disposition', 'attachment', filename=f'{name}_certificate.png')
-        msg.attach(part)
+    # Add the certificate as an attachment
+    attachment = Attachment(
+        FileContent(encoded_file),
+        FileName(f'{name}_certificate.png'),
+        FileType('application/png'),
+        Disposition('attachment')
+    )
+    message.attachment = attachment
 
-    # Send email
-    with SMTP(smtp_server, smtp_port) as server:
-        server.starttls()
-        server.login(sender_email, sender_password)
-        server.send_message(msg)
+    # Send the email using SendGrid API
+    try:
+        sg = SendGridAPIClient(sendgrid_api_key)
+        response = sg.send(message)
+        print(f"Email sent to {name} at {to_address} with status code {response.status_code}")
+    except Exception as e:
+        print(f"An error occurred while sending email to {to_address}: {e}")
 
 # Main function to process participants and send emails
 def main():
@@ -84,11 +85,8 @@ def main():
     data = load_data('responses.json')
     participants = extract_emails(data)
     
-    # SMTP configuration (use your email details)
-    smtp_server = 'smtp.gmail.com'
-    smtp_port = 587
-    sender_email = 'your_email@gmail.com'
-    sender_password = 'your_email_password'
+    # Your SendGrid API key (replace with your actual API key)
+    sendgrid_api_key = 'YOUR_SENDGRID_API_KEY'  # Replace with your SendGrid API Key
 
     # Iterate through each participant, generate certificates, and send emails
     for participant in participants:
@@ -98,9 +96,8 @@ def main():
         # Generate certificate
         certificate_path = generate_certificate(name)
         
-        # Send email
-        send_email(email, name, certificate_path, smtp_server, smtp_port, sender_email, sender_password)
-        print(f"Email sent to {name} at {email}")
+        # Send email via SendGrid
+        send_email_via_sendgrid(email, name, certificate_path, sendgrid_api_key)
 
 if __name__ == "__main__":
     main()
